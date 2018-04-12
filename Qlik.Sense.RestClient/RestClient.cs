@@ -28,6 +28,7 @@ namespace Qlik.Sense.RestClient
         public RestClient(string uri)
         {
             Uri = new Uri(uri);
+            Headers[HttpRequestHeader.Accept] = "application/json, text/plain, */*";
         }
 
         public void AsDirectConnection(int port = 4242, bool certificateValidation = true, X509Certificate2Collection certificateCollection = null)
@@ -48,12 +49,14 @@ namespace Qlik.Sense.RestClient
                 ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
         }
 
-        public void AsNtlmUserViaProxy()
+        public void AsNtlmUserViaProxy(bool certificateValidation = true)
         {
             UseDefaultCredentials = true;
             CurrentConnectionType = ConnectionType.NtlmUserViaProxy;
             _userId = Environment.UserName;
             _userDirectory = Environment.UserDomainName;
+            if (!certificateValidation)
+                ServicePointManager.ServerCertificateValidationCallback = delegate { return true; };
         }
 
         public void LoadCertificateFromDirectory(string path, SecureString certificatePassword = null)
@@ -82,6 +85,7 @@ namespace Qlik.Sense.RestClient
             ValidateConfiguration();
             if (_cookieJar.Count == 0)
                 CollectCookie();
+            Headers[HttpRequestHeader.ContentType] = "application/json";
             return UploadString(new Uri(Uri, endpoint), body);
         }
 
@@ -91,6 +95,20 @@ namespace Qlik.Sense.RestClient
             if (_cookieJar.Count == 0)
                 await CollectCookieAsync();
             return await UploadStringTaskAsync(new Uri(Uri, endpoint), body);
+        }
+
+        public byte[] Post(string endpoint, byte[] body)
+        {
+            ValidateConfiguration();
+            if (_cookieJar.Count == 0)
+                CollectCookie();
+            var uri = new Uri(Uri, endpoint);
+            return UploadData(uri, body);
+        }
+
+        public void UploadApp(string appName, byte[] app)
+        {
+            Post("qrs/app/upload?keepData=true&name=" + appName, app);
         }
 
         public string Delete(string endpoint)
@@ -130,8 +148,11 @@ namespace Qlik.Sense.RestClient
         {
             var xrfkey = CreateXrfKey();
             var request = (HttpWebRequest)base.GetWebRequest(AddXrefKey(address, xrfkey));
-            request.ContentType = "application/json";
             request.Headers.Add("X-Qlik-Xrfkey", xrfkey);
+            request.Accept = "application/json, text/plain, */*";
+            request.Headers.Add("AcceptEncoding", "gzip, deflate, br");
+            request.ContentType = "application/vnd.qlik.sense.app";
+
             var userHeaderValue = string.Format("UserDirectory={0};UserId={1}", _userDirectory, _userId);
             switch (CurrentConnectionType)
             {
